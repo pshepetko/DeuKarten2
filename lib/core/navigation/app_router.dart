@@ -1,0 +1,122 @@
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
+
+import '../../features/auth/welcome_login_screen.dart';
+import '../../features/ki_teacher/screens/ki_teacher_screen.dart';
+import '../../features/tests/screens/test_question_screen.dart';
+import '../../features/tests/screens/test_result_screen.dart' as test_result;
+import '../../screens/home/home_screen.dart';
+import '../../screens/karten/karten_screen.dart';
+import '../../screens/karten/learning_session_screen.dart';
+import '../../screens/karten/session_result_screen.dart';
+import '../../screens/profil/profil_screen.dart';
+import '../../screens/statistik/statistik_screen.dart';
+import '../../screens/tests/test_detail_screen.dart';
+import '../../screens/tests/tests_screen.dart';
+import 'scaffold_with_nav_bar.dart';
+
+part 'app_router.g.dart';
+
+final _rootNavigatorKey = GlobalKey<NavigatorState>();
+
+@riverpod
+GoRouter appRouter(AppRouterRef ref) {
+  return GoRouter(
+    initialLocation: '/welcome',
+    navigatorKey: _rootNavigatorKey,
+    routes: [
+      GoRoute(
+        path: '/welcome',
+        name: 'welcome',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const WelcomeLoginScreen(),
+      ),
+      ShellRoute(
+        builder: (context, state, child) => ScaffoldWithNavBar(child: child),
+        routes: [
+          GoRoute(
+            path: '/home',
+            name: 'home',
+            builder: (context, state) => const HomeScreen(),
+          ),
+          GoRoute(
+            path: '/karten',
+            name: 'karten',
+            builder: (context, state) => const KartenScreen(),
+            routes: [
+              GoRoute(
+                path: 'session',
+                name: 'session',
+                parentNavigatorKey: _rootNavigatorKey,
+                builder: (context, state) {
+                  final deckId = state.uri.queryParameters['deckId'] ?? '';
+                  return LearningSessionScreen(
+                    key: ValueKey(deckId),
+                    deckId: deckId,
+                  );
+                },
+              ),
+              GoRoute(
+                path: 'result',
+                name: 'result',
+                parentNavigatorKey: _rootNavigatorKey,
+                builder: (context, state) => const SessionResultScreen(),
+              ),
+            ],
+          ),
+          GoRoute(
+            path: '/tests',
+            name: 'tests',
+            builder: (context, state) => const TestsScreen(),
+            routes: [
+              GoRoute(
+                path: ':id',
+                name: 'test_detail',
+                parentNavigatorKey: _rootNavigatorKey,
+                builder: (context, state) {
+                  final id = state.pathParameters['id'] ?? '';
+                  return TestDetailScreen(id: id);
+                },
+                routes: [
+                  GoRoute(
+                    path: 'question',
+                    name: 'test_question',
+                    parentNavigatorKey: _rootNavigatorKey,
+                    builder: (context, state) {
+                      final id = state.pathParameters['id'] ?? '';
+                      return TestQuestionScreen(testId: id);
+                    },
+                  ),
+                  GoRoute(
+                    path: 'result',
+                    name: 'test_result',
+                    parentNavigatorKey: _rootNavigatorKey,
+                    builder: (context, state) {
+                      return const test_result.TestResultScreen();
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+          GoRoute(
+            path: '/statistik',
+            name: 'statistik',
+            builder: (context, state) => const StatistikScreen(),
+          ),
+          GoRoute(
+            path: '/ki_teacher',
+            name: 'ki_teacher',
+            builder: (context, state) => const KiTeacherScreen(),
+          ),
+          GoRoute(
+            path: '/profil',
+            name: 'profil',
+            builder: (context, state) => const ProfilScreen(),
+          ),
+        ],
+      ),
+    ],
+  );
+}

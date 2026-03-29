@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="A new Flutter project.">
+
+  <!-- iOS meta tags & icons -->
+
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="deu_karten">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <meta name="google-signin-client_id" content="443591797148-bauac2p6ku0oa76ngpra43hemoci8c9r.apps.googleusercontent.com">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>deu_karten</title>
+  <link rel="manifest" href="manifest.json">
+</head>
+<body>
+  <!-- Load local sql.js (sql-wasm) so Drift's WebDatabase can access the JavaScript/sql.wasm runtime.
+       Place the files under web/sqljs/ so the JS can locate the wasm file at runtime. -->
+  <script src="sqljs/sql-wasm.js"></script>
+  <!-- Initialize sql.js early with an explicit locateFile so the WASM is loaded from the correct local path. -->
+  <script>
+    // If sql-wasm.js loaded correctly it exposes initSqlJs. Call it once with a moduleConfig
+    // that ensures the wasm is resolved from /sqljs/sql-wasm.wasm. Drift's WebDatabase will
+    // reuse the same initialized module / promise when it calls initSqlJs later.
+    try {
+      if (typeof initSqlJs === 'function') {
+        // Start loading async (do not await here) so wasm is available by the time Flutter bootstraps.
+        initSqlJs({
+          locateFile: function(path) {
+            // Always resolve to the local web/sqljs folder. This avoids document.currentScript based resolution
+            // which can return the wrong path (and in some hosting setups return an HTML page instead of the WASM).
+            return '/sqljs/' + path;
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('sql.js init failed early:', e);
+    }
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

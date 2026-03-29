@@ -1,0 +1,69 @@
+{
+  "project_info": {
+    "project_number": "443591797148",
+    "firebase_url": "https://deukarten-e71c7-default-rtdb.europe-west1.firebasedatabase.app",
+    "project_id": "deukarten-e71c7",
+    "storage_bucket": "deukarten-e71c7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:443591797148:android:63a25cf361dcd382e50059",
+        "android_client_info": {
+          "package_name": "com.deukarten.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "443591797148-bauac2p6ku0oa76ngpra43hemoci8c9r.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAX-G79VL28eXUd1I4KflF42dDdv1R01tk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "443591797148-bauac2p6ku0oa76ngpra43hemoci8c9r.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:443591797148:android:2ae1ce3d06fbe706e50059",
+        "android_client_info": {
+          "package_name": "com.deukarten.deu_karten"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "443591797148-bauac2p6ku0oa76ngpra43hemoci8c9r.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAX-G79VL28eXUd1I4KflF42dDdv1R01tk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "443591797148-bauac2p6ku0oa76ngpra43hemoci8c9r.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
