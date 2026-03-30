@@ -1,18 +1,21 @@
 // lib/screens/welcome_login_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:deu_karten/core/database/drift_database.dart';
+import 'package:deu_karten/features/profile/providers/providers.dart';
 import 'package:drift/drift.dart' as drift;
 
-class WelcomeLoginScreen extends StatefulWidget {
+class WelcomeLoginScreen extends ConsumerStatefulWidget {
   const WelcomeLoginScreen({super.key});
 
   @override
-  State<WelcomeLoginScreen> createState() => _WelcomeLoginScreenState();
+  ConsumerState<WelcomeLoginScreen> createState() =>
+      _WelcomeLoginScreenState();
 }
 
-class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
+class _WelcomeLoginScreenState extends ConsumerState<WelcomeLoginScreen> {
   bool _showLoginForm = false;
 
   final _usernameController = TextEditingController();
@@ -31,7 +34,6 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
     _usernameController.addListener(_onUsernameChanged);
   }
 
-  // ✅ Автозаповнення email з username
   void _onUsernameChanged() {
     final username = _usernameController.text.trim().toLowerCase();
     if (username.isNotEmpty) {
@@ -67,7 +69,49 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
     });
   }
 
-  // ── LOGIN ──
+  Future<void> _ensureUserProfile(User firebaseUser) async {
+    final db = AppDatabase.instance;
+    final uid = firebaseUser.uid;
+    final username = firebaseUser.displayName ??
+        _usernameController.text.trim();
+    final email = firebaseUser.email ??
+        '${_usernameController.text.trim().toLowerCase()}@deukarten.de';
+
+    debugPrint('👤 ensureUserProfile: uid=$uid, name=$username');
+
+    await db.into(db.userProfiles).insertOnConflictUpdate(
+      UserProfilesCompanion.insert(
+        id: uid,
+        userId: uid,
+        name: username,
+        email: drift.Value(email),
+        joinedDate: DateTime.now(),
+        settings: '{"darkMode":false,"language":"de",'
+            '"soundEffects":true,"hapticFeedback":true,'
+            '"dailyReminder":true,"reminderTime":"09:00"}',
+        learningPrefs: '{"dailyGoal":20,"currentLevel":"A1",'
+            '"nativeLanguage":"uk","autoPlayAudio":true}',
+      ),
+    );
+
+    await db.into(db.userProfiles).insertOnConflictUpdate(
+      UserProfilesCompanion.insert(
+        id: 'local_user',
+        userId: 'local_user',
+        name: username,
+        email: drift.Value(email),
+        joinedDate: DateTime.now(),
+        settings: '{"darkMode":false,"language":"de",'
+            '"soundEffects":true,"hapticFeedback":true,'
+            '"dailyReminder":true,"reminderTime":"09:00"}',
+        learningPrefs: '{"dailyGoal":20,"currentLevel":"A1",'
+            '"nativeLanguage":"uk","autoPlayAudio":true}',
+      ),
+    );
+
+    debugPrint('✅ Профіль збережено: $username (uid=$uid + local_user)');
+  }
+
   Future<void> _handleLogin() async {
     final username = _usernameController.text.trim();
     final password = _passwordController.text.trim();
@@ -87,23 +131,35 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
     });
 
     try {
-      await _auth.signInWithEmailAndPassword(
+      final credential = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
 
       if (!mounted) return;
+
+      if (credential.user != null) {
+        await _ensureUserProfile(credential.user!);
+      }
+
+      if (!mounted) return;
+
+      // ✅ refresh ЗАМІСТЬ invalidate — перечитує одразу
+      await ref.read(userProfileProvider.notifier).reload();
+
+      debugPrint('🔄 userProfileProvider refreshed, username=$username');
+
       context.go('/home');
     } on FirebaseAuthException catch (e) {
       setState(() => _errorText = _mapFirebaseError(e.code));
-    } catch (_) {
-      setState(() => _errorText = 'Ein unbekannter Fehler ist aufgetreten.');
+    } catch (e) {
+      setState(
+              () => _errorText = 'Ein unbekannter Fehler ist aufgetreten: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // ── REGISTER ──
   Future<void> _handleRegister() async {
     final username = _usernameController.text.trim();
     final password = _passwordController.text.trim();
@@ -130,35 +186,23 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
     });
 
     try {
-      // 1. Firebase реєстрація
       final credential = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
 
-      // 2. Оновити displayName в Firebase
       await credential.user?.updateDisplayName(username);
 
-      // 3. ✅ Зберегти в локальну БД user_profiles
-      final db = AppDatabase.instance;
-      final uid = credential.user!.uid;
-
-      await db.into(db.userProfiles).insertOnConflictUpdate(
-        UserProfilesCompanion.insert(
-          id: uid,
-          userId: uid,
-          name: username,
-          email: drift.Value(email),
-          joinedDate: DateTime.now(),
-          settings: '{"darkMode":false,"language":"de",'
-              '"soundEffects":true,"hapticFeedback":true,'
-              '"dailyReminder":true,"reminderTime":"09:00"}',
-          learningPrefs: '{"dailyGoal":20,"currentLevel":"A1",'
-              '"nativeLanguage":"uk","autoPlayAudio":true}',
-        ),
-      );
+      if (credential.user != null) {
+        await _ensureUserProfile(credential.user!);
+      }
 
       if (!mounted) return;
+
+      // ✅ refresh ЗАМІСТЬ invalidate — перечитує одразу
+      await ref.read(userProfileProvider.notifier).reload();
+
+      debugPrint('🔄 userProfileProvider refreshed, username=$username');
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -177,7 +221,6 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
     }
   }
 
-  // ── RESET PASSWORD ──
   Future<void> _handleResetPassword() async {
     final username = _usernameController.text.trim();
 
@@ -247,7 +290,6 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
     );
   }
 
-  // ── Welcome View ──
   Widget _buildWelcome() {
     return Padding(
       key: const ValueKey('welcome_view'),
@@ -322,7 +364,6 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
     );
   }
 
-  // ── Login / Register Form ──
   Widget _buildLoginForm() {
     return SingleChildScrollView(
       key: const ValueKey('login_view'),
@@ -363,8 +404,6 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
               ),
             ),
             const SizedBox(height: 24),
-
-            // ✅ Username поле
             TextField(
               controller: _usernameController,
               enabled: !_isLoading,
@@ -378,8 +417,6 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // ✅ Email — readonly, автозаповнюється
             TextField(
               controller: _emailController,
               enabled: false,
@@ -393,8 +430,6 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // ✅ Passwort
             TextField(
               controller: _passwordController,
               obscureText: _obscurePassword,
@@ -417,8 +452,6 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
                 ),
               ),
             ),
-
-            // ✅ Passwort vergessen
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(
@@ -429,8 +462,6 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
                 ),
               ),
             ),
-
-            // ── Помилка ──
             if (_errorText != null) ...[
               const SizedBox(height: 4),
               Container(
@@ -459,8 +490,6 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
               ),
             ],
             const SizedBox(height: 24),
-
-            // ── Login Button ──
             ElevatedButton(
               onPressed: _isLoading ? null : _handleLogin,
               child: _isLoading
@@ -472,15 +501,11 @@ class _WelcomeLoginScreenState extends State<WelcomeLoginScreen> {
                   : const Text('Login'),
             ),
             const SizedBox(height: 12),
-
-            // ── Register Button ──
             OutlinedButton(
               onPressed: _isLoading ? null : _handleRegister,
               child: const Text('Registrieren'),
             ),
             const SizedBox(height: 16),
-
-            // ── Ohne Anmeldung ──
             TextButton(
               onPressed: _isLoading ? null : _continueAsGuest,
               child: const Text('Als Gast fortfahren'),

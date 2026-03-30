@@ -44,7 +44,20 @@ class UserProfileNotifier extends StateNotifier<AsyncValue<UserProfile?>> {
       state = AsyncValue.error(e, st);
     }
   }
-  
+
+  Future<void> reload() async {
+    print('🔄 reload() START');
+    try {
+      final profile = await _repository.getUserProfile();
+      print('🔄 reload() GOT: name=${profile?.name}, id=${profile?.id}');
+      state = AsyncValue.data(profile);
+      print('🔄 reload() STATE SET: ${state.valueOrNull?.name}');
+    } catch (e, st) {
+      print('❌ reload() ERROR: $e');
+      state = AsyncValue.error(e, st);
+    }
+  }
+
   Future<void> createProfile({
     required String name,
     String? email,

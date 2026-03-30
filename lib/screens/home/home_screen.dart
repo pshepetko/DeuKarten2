@@ -125,18 +125,17 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    ref.invalidate(homeStatsProvider);
+    // ❌ ПРИБРАНО: ref.invalidate(userProfileProvider);
+    // ❌ ПРИБРАНО: ref.invalidate(homeStatsProvider);
+
     final statsAsync = ref.watch(homeStatsProvider);
     final stats = statsAsync.valueOrNull ?? {};
 
-    // ✅ Дані з профілю
     final profile = ref.watch(userProfileProvider).valueOrNull;
     final userName = profile?.name ?? 'Lerner';
     final dailyGoal = profile?.learningPrefs.dailyGoal ?? 20;
 
     final cardsReady = (stats['ready'] ?? 0) as int;
-    final totalCards = (stats['total'] ?? 0) as int;
-    final knownCards = (stats['known'] ?? 0) as int;
     final learnedToday = (stats['learnedToday'] ?? 0) as int;
     final totalReviewed = (stats['totalReviewed'] ?? 0) as int;
     final successRate = (stats['successRate'] ?? 0.0) as double;
@@ -145,144 +144,152 @@ class HomeScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: _buildAppBar(context, currentStreak, userName),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            HeroLearningCard(
-              hasOngoingSession: false,
-              cardsReady: cardsReady,
-              onStart: cardsReady > 0
-                  ? () => context.push('/karten/session?deckId=all')
-                  : null,
-            )
-                .animate()
-                .fadeIn(duration: 600.ms)
-                .slideY(begin: 0.2, end: 0, duration: 600.ms),
+      body: RefreshIndicator(
+        // ✅ Оновлення по pull-to-refresh замість invalidate в build
+        onRefresh: () async {
+          ref.invalidate(homeStatsProvider);
+          ref.invalidate(userProfileProvider);
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              HeroLearningCard(
+                hasOngoingSession: false,
+                cardsReady: cardsReady,
+                onStart: cardsReady > 0
+                    ? () => context.push('/karten/session?deckId=all')
+                    : null,
+              )
+                  .animate()
+                  .fadeIn(duration: 600.ms)
+                  .slideY(begin: 0.2, end: 0, duration: 600.ms),
 
-            const SizedBox(height: 24),
+              const SizedBox(height: 24),
 
-            Text('Tagesfortschritt', style: AppTypography.section),
-            const SizedBox(height: 12),
+              Text('Tagesfortschritt', style: AppTypography.section),
+              const SizedBox(height: 12),
 
-            DailyProgressSection(
-              cardsLearnedToday: learnedToday,  // ← реальне
-              dailyGoal: dailyGoal,
-              streak: currentStreak,             // ← реальне
-              xpToday: xpToday,                  // ← реальне
-            )
-                .animate()
-                .fadeIn(duration: 500.ms, delay: 100.ms)
-                .slideY(begin: 0.2, end: 0, duration: 500.ms),
+              DailyProgressSection(
+                cardsLearnedToday: learnedToday,
+                dailyGoal: dailyGoal,
+                streak: currentStreak,
+                xpToday: xpToday,
+              )
+                  .animate()
+                  .fadeIn(duration: 500.ms, delay: 100.ms)
+                  .slideY(begin: 0.2, end: 0, duration: 500.ms),
 
-            const SizedBox(height: 24),
+              const SizedBox(height: 24),
 
-            QuickStatsRow(
-              totalCardsLearned: totalReviewed,   // ← всього вивчених
-              currentStreak: currentStreak,
-              successRate: successRate,            // ← реальне
-            )
-                .animate()
-                .fadeIn(duration: 500.ms, delay: 200.ms)
-                .slideY(begin: 0.2, end: 0, duration: 500.ms),
+              QuickStatsRow(
+                totalCardsLearned: totalReviewed,
+                currentStreak: currentStreak,
+                successRate: successRate,
+              )
+                  .animate()
+                  .fadeIn(duration: 500.ms, delay: 200.ms)
+                  .slideY(begin: 0.2, end: 0, duration: 500.ms),
 
-            const SizedBox(height: 24),
+              const SizedBox(height: 24),
 
-            Text('Lernmodi', style: AppTypography.section),
-            const SizedBox(height: 12),
+              Text('Lernmodi', style: AppTypography.section),
+              const SizedBox(height: 12),
 
-            LearningModesGrid(
-              onKartenTap: () => context.push('/karten'),
-              onSaetzeTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Coming soon: Sätze bauen')),
-                );
-              },
-              onHoerenTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Coming soon: Hören')),
-                );
-              },
-            )
-                .animate()
-                .fadeIn(duration: 500.ms, delay: 300.ms)
-                .slideY(begin: 0.2, end: 0, duration: 500.ms),
+              LearningModesGrid(
+                onKartenTap: () => context.push('/karten'),
+                onSaetzeTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Coming soon: Sätze bauen')),
+                  );
+                },
+                onHoerenTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Coming soon: Hören')),
+                  );
+                },
+              )
+                  .animate()
+                  .fadeIn(duration: 500.ms, delay: 300.ms)
+                  .slideY(begin: 0.2, end: 0, duration: 500.ms),
 
-            const SizedBox(height: 12),
+              const SizedBox(height: 12),
 
-            InkWell(
-              onTap: () => context.go('/ki_teacher'),
-              borderRadius: BorderRadius.circular(16),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: AppColors.primary.withOpacity(0.15),
+              InkWell(
+                onTap: () => context.go('/ki_teacher'),
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: AppColors.primary.withOpacity(0.15),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.psychology_outlined,
+                          color: AppColors.primary,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'KI-Lehrer',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.cardTitle,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Mit AI chatten und üben',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.caption,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Icon(
+                        Icons.chevron_right,
+                        color: AppColors.textTertiary,
+                      ),
+                    ],
                   ),
                 ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.psychology_outlined,
-                        color: AppColors.primary,
-                        size: 24,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'KI-Lehrer',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.cardTitle,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Mit AI chatten und üben',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.caption,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Icon(
-                      Icons.chevron_right,
-                      color: AppColors.textTertiary,
-                    ),
-                  ],
-                ),
-              ),
-            )
-                .animate()
-                .fadeIn(duration: 500.ms, delay: 350.ms)
-                .slideY(begin: 0.2, end: 0, duration: 500.ms),
+              )
+                  .animate()
+                  .fadeIn(duration: 500.ms, delay: 350.ms)
+                  .slideY(begin: 0.2, end: 0, duration: 500.ms),
 
-            const SizedBox(height: 24),
+              const SizedBox(height: 24),
 
-            Text('Kürzlich gelernt', style: AppTypography.section),
-            const SizedBox(height: 12),
+              Text('Kürzlich gelernt', style: AppTypography.section),
+              const SizedBox(height: 12),
 
-            const RecentDecksSection()
-                .animate()
-                .fadeIn(duration: 500.ms, delay: 400.ms)
-                .slideY(begin: 0.2, end: 0, duration: 500.ms),
-          ],
+              const RecentDecksSection()
+                  .animate()
+                  .fadeIn(duration: 500.ms, delay: 400.ms)
+                  .slideY(begin: 0.2, end: 0, duration: 500.ms),
+            ],
+          ),
         ),
       ),
     );
