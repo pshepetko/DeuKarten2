@@ -2,7 +2,7 @@ name: Build Windows App
 
 on:
   push:
-    branches: [ main ] # Збірка запускається при кожному push у гілку main
+    branches: [ main ]
 
 jobs:
   build:
@@ -29,5 +29,6 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-executable
+          name: windows-app-files
+          # Ми завантажуємо всю папку Release, щоб додаток точно запустився
           path: build/windows/x64/runner/Release/
