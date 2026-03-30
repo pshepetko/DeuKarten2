@@ -22,7 +22,7 @@ jobs:
       - name: Build Web
         run: |
           flutter pub get
-          flutter build web --release --base-href "/deukarten2/"
+          flutter build web --release --base-href "/DeuKarten2/"
 
       - name: Upload Artifact
         uses: actions/upload-pages-artifact@v3
