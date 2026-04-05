@@ -1,13 +1,17 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:deu_karten/features/cards/models/deck.dart';
 import 'package:deu_karten/features/cards/models/word_card.dart';
 import 'package:deu_karten/features/cards/providers/cards_providers_drift.dart';
 import 'package:deu_karten/features/cards/services/cloud_sync_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-
+ 
 import '../../features/cards/repositories/cards_repository_drift.dart';
+import '../../core/services/firebase_progress_restore_service.dart';
+import '../../core/database/drift_database.dart';
 
 class KartenScreen extends ConsumerStatefulWidget {
   const KartenScreen({super.key});
@@ -214,6 +218,53 @@ class _KartenScreenState extends ConsumerState<KartenScreen> {
     }
   }
 
+  Future<void> _handleRestoreFromCloud({bool forceAll = false}) async {
+    try {
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Expanded(child: Text('Wiederherstellung läuft…')),
+            ],
+          ),
+        ),
+      );
+
+      final restoreService = FirebaseProgressRestoreService(
+        firestore: FirebaseFirestore.instance,
+        auth: FirebaseAuth.instance,
+        db: AppDatabase.instance,
+      );
+
+      int restoredCount;
+      try {
+        restoredCount = await restoreService.restoreWordProgressFromCloud(forceAll: forceAll);
+      } catch (e) {
+        restoredCount = 0;
+        rethrow;
+      } finally {
+        if (Navigator.of(context, rootNavigator: true).canPop()) {
+          Navigator.of(context, rootNavigator: true).pop();
+        }
+      }
+
+      if (!mounted) return;
+      _showSnack('Wiederhergestellt: $restoredCount Karten');
+    } catch (e) {
+      if (!mounted) return;
+      if (Navigator.of(context, rootNavigator: true).canPop()) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      _showSnack('Wiederherstellungs-Fehler: $e', isError: true);
+    }
+  }
+
   Future<String?> _showLocalDeckPicker(List<Deck> decks) {
     String? selected;
 
@@ -346,6 +397,46 @@ class _KartenScreenState extends ConsumerState<KartenScreen> {
       appBar: AppBar(
         title: const Text('Karten'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.restore),
+            tooltip: 'Restore progress from Cloud',
+            onPressed: () async {
+              // Ask for confirmation before restoring (this overwrites local word progress)
+              final result = await showDialog<Map<String, dynamic>>(
+                context: context,
+                builder: (ctx) {
+                  bool forceAll = false;
+                  return StatefulBuilder(
+                    builder: (context, setState) => AlertDialog(
+                      title: const Text('Fortschritt aus der Cloud wiederherstellen'),
+                      content: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                              'Möchtest du den Wortfortschritt aus der Cloud wiederherstellen? Dadurch werden lokale Fortschritte überschrieben.'),
+                          const SizedBox(height: 12),
+                          CheckboxListTile(
+                            value: forceAll,
+                            onChanged: (v) => setState(() => forceAll = v ?? false),
+                            title: const Text('Aktualisieren: Alle Datensätze (ignoriere Status)'),
+                            controlAffinity: ListTileControlAffinity.leading,
+                          ),
+                        ],
+                      ),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.of(ctx).pop({'confirmed': false}), child: const Text('Abbrechen')),
+                        ElevatedButton(onPressed: () => Navigator.of(ctx).pop({'confirmed': true, 'forceAll': forceAll}), child: const Text('Wiederherstellen')),
+                      ],
+                    ),
+                  );
+                },
+              );
+              if (result != null && result['confirmed'] == true) {
+                final force = result['forceAll'] as bool? ?? false;
+                _handleRestoreFromCloud(forceAll: force);
+              }
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.cloud_sync_outlined),
             tooltip: 'Cloud-Synchronisation',

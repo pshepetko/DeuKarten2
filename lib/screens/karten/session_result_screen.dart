@@ -1,22 +1,128 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+ 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
 import '../../features/cards/providers/session_provider.dart';
 import '../../features/cards/providers/cards_providers.dart';
-import '../../features/cards/widgets/session_views.dart';
+import '../../core/database/drift_database.dart';
+import '../../core/services/firebase_progress_sync_service.dart';
 
-class SessionResultScreen extends ConsumerWidget {
+class SessionResultScreen extends ConsumerStatefulWidget {
   const SessionResultScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SessionResultScreen> createState() => _SessionResultScreenState();
+}
+
+class _SessionResultScreenState extends ConsumerState<SessionResultScreen> {
+  bool _isSyncing = false;
+  bool _hasSynced = false;
+  bool _needsAuth = false;
+  String? _syncError;
+
+  @override
+  void initState() {
+    super.initState();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Ensure we attempt sync first, then refresh session history so the UI
+      // picks up the newly completed session from the local DB.
+      await _syncSessionIfNeeded();
+
+      // Invalidate the session history provider so the latest completed session
+      // (and its stats: Richtig / Zu lernen / XP / Genauigkeit) are re-fetched.
+      try {
+        ref.invalidate(sessionHistoryProvider);
+      } catch (_) {
+        // ignore - defensive in case ref isn't available for some reason here
+      }
+    });
+  }
+
+  Future<void> _syncSessionIfNeeded() async {
+    if (_hasSynced || _isSyncing) return;
+
+    final dbHistory = await AppDatabase.instance.getSessionHistory();
+    debugPrint('🔍 local getSessionHistory returned ${dbHistory.length} entries');
+    // getSessionHistory() returns sessions ordered by completedAt DESC (newest first).
+    // Use the first entry to ensure we sync the most recent completed session.
+    final session = dbHistory.isNotEmpty ? dbHistory.first : null;
+
+    if (session == null) return;
+
+    // Log raw cards JSON stored in the DB row
+    debugPrint('🔍 selected session id=${session.id} startedAt=${session.startedAt} completedAt=${session.completedAt}');
+    debugPrint('🔍 raw cards JSON: ${session.cards}');
+
+    // Try to parse card ids here for quick diagnostics
+    try {
+      final parsed = jsonDecode(session.cards);
+      if (parsed is List) {
+        final ids = parsed.map((e) {
+          if (e is Map) return e['cardId']?.toString() ?? e['id']?.toString();
+          return null;
+        }).whereType<String>().toList();
+        debugPrint('🔍 parsed cardIds (${ids.length}): $ids');
+      } else {
+        debugPrint('🔍 parsed cards is not a List (type=${parsed.runtimeType})');
+      }
+    } catch (e) {
+      debugPrint('⚠️ Failed to decode session.cards JSON: $e');
+    }
+
+    setState(() {
+      _isSyncing = true;
+      _syncError = null;
+      _needsAuth = false;
+    });
+
+    final syncService = FirebaseProgressSyncService(
+      firestore: FirebaseFirestore.instance,
+      auth: FirebaseAuth.instance,
+      db: AppDatabase.instance,
+    );
+
+    final result = await syncService.syncCompletedSession(session: session);
+
+    if (!mounted) return;
+
+    switch (result) {
+      case SessionSyncResult.success:
+        setState(() {
+          _hasSynced = true;
+          _isSyncing = false;
+        });
+        break;
+
+      case SessionSyncResult.notAuthenticated:
+        setState(() {
+          _needsAuth = true;
+          _isSyncing = false;
+        });
+        break;
+
+      case SessionSyncResult.failed:
+        setState(() {
+          _syncError = 'Synchronisierung fehlgeschlagen.';
+          _isSyncing = false;
+        });
+        break;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final sessionHistoryAsync = ref.watch(sessionHistoryProvider);
 
     final session = sessionHistoryAsync.when(
-      data: (history) => history.isNotEmpty ? history.last : null,
+      data: (history) => history.isNotEmpty ? history.first : null,
       loading: () => null,
       error: (_, __) => null,
     );
@@ -65,6 +171,70 @@ class SessionResultScreen extends ConsumerWidget {
           padding: const EdgeInsets.all(20),
           child: Column(
             children: [
+              if (_isSyncing)
+                _buildInfoBanner(
+                  icon: Icons.sync,
+                  text: 'Synchronisiere Fortschritt mit Firebase...',
+                  color: AppColors.primary,
+                ),
+
+              if (_hasSynced)
+                _buildInfoBanner(
+                  icon: Icons.cloud_done,
+                  text: 'Fortschritt erfolgreich in der Cloud gespeichert.',
+                  color: AppColors.success,
+                ),
+
+              if (_needsAuth)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.orange.withOpacity(0.2)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.lock_outline, color: Colors.orange),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'Melde dich an, um deinen Fortschritt in der Cloud zu speichern.',
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => context.go('/welcome-login'),
+                        child: const Text('Anmelden'),
+                      ),
+                    ],
+                  ),
+                ),
+
+              if (_syncError != null)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.error.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.error.withOpacity(0.2)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.error_outline, color: AppColors.error),
+                      const SizedBox(width: 12),
+                      Expanded(child: Text(_syncError!)),
+                      TextButton(
+                        onPressed: _syncSessionIfNeeded,
+                        child: const Text('Erneut'),
+                      ),
+                    ],
+                  ),
+                ),
+
               Container(
                 width: 150,
                 height: 150,
@@ -111,10 +281,7 @@ class SessionResultScreen extends ConsumerWidget {
                 label: 'Richtig',
                 value: '$correctAnswers',
                 color: AppColors.success,
-              )
-                  .animate()
-                  .fadeIn(delay: 200.ms, duration: 300.ms)
-                  .slideX(begin: -0.2, end: 0),
+              ),
 
               const SizedBox(height: 12),
 
@@ -123,10 +290,7 @@ class SessionResultScreen extends ConsumerWidget {
                 label: 'Zu lernen',
                 value: '$toLearn',
                 color: AppColors.error,
-              )
-                  .animate()
-                  .fadeIn(delay: 300.ms, duration: 300.ms)
-                  .slideX(begin: -0.2, end: 0),
+              ),
 
               const SizedBox(height: 12),
 
@@ -135,10 +299,7 @@ class SessionResultScreen extends ConsumerWidget {
                 label: 'XP verdient',
                 value: '+$xpEarned',
                 color: AppColors.xp,
-              )
-                  .animate()
-                  .fadeIn(delay: 400.ms, duration: 300.ms)
-                  .slideX(begin: -0.2, end: 0),
+              ),
 
               const SizedBox(height: 12),
 
@@ -147,10 +308,7 @@ class SessionResultScreen extends ConsumerWidget {
                 label: 'Genauigkeit',
                 value: '$accuracy%',
                 color: AppColors.primary,
-              )
-                  .animate()
-                  .fadeIn(delay: 500.ms, duration: 300.ms)
-                  .slideX(begin: -0.2, end: 0),
+              ),
 
               const SizedBox(height: 24),
 
@@ -167,7 +325,7 @@ class SessionResultScreen extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-              ).animate().fadeIn(delay: 600.ms, duration: 300.ms),
+              ),
 
               const SizedBox(height: 12),
 
@@ -181,12 +339,36 @@ class SessionResultScreen extends ConsumerWidget {
                 style: TextButton.styleFrom(
                   minimumSize: const Size(double.infinity, 56),
                 ),
-              ).animate().fadeIn(delay: 700.ms, duration: 300.ms),
+              ),
 
               const SizedBox(height: 12),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildInfoBanner({
+    required IconData icon,
+    required String text,
+    required Color color,
+  }) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color),
+          const SizedBox(width: 12),
+          Expanded(child: Text(text)),
+        ],
       ),
     );
   }

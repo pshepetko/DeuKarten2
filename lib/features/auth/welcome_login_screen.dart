@@ -7,6 +7,8 @@ import 'package:deu_karten/core/database/drift_database.dart';
 import 'package:deu_karten/features/profile/providers/providers.dart';
 import 'package:drift/drift.dart' as drift;
 
+import '../profile/models/user_profile.dart';
+
 class WelcomeLoginScreen extends ConsumerStatefulWidget {
   const WelcomeLoginScreen({super.key});
 
@@ -26,6 +28,10 @@ class _WelcomeLoginScreenState extends ConsumerState<WelcomeLoginScreen> {
   bool _obscurePassword = true;
   String? _errorText;
 
+  // ✅ Додано для роботи з існуючим користувачем
+  UserProfileData? _existingUser;
+  bool get _hasUser => _existingUser != null;
+
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   @override
@@ -35,6 +41,9 @@ class _WelcomeLoginScreenState extends ConsumerState<WelcomeLoginScreen> {
   }
 
   void _onUsernameChanged() {
+    // Тільки якщо немає існуючого користувача
+    if (_hasUser) return;
+
     final username = _usernameController.text.trim().toLowerCase();
     if (username.isNotEmpty) {
       _emailController.text = '$username@deukarten.de';
@@ -55,11 +64,14 @@ class _WelcomeLoginScreenState extends ConsumerState<WelcomeLoginScreen> {
   void _continueAsGuest() => context.go('/home');
   void _continueOhneAnmeldung() => context.go('/home');
 
-  void _openLoginForm() {
+  void _openLoginForm() async {
     setState(() {
       _showLoginForm = true;
       _errorText = null;
     });
+
+    // ✅ Завантажити існуючого користувача при відкритті форми
+    await _loadExistingUser();
   }
 
   void _backToWelcome() {
@@ -69,17 +81,54 @@ class _WelcomeLoginScreenState extends ConsumerState<WelcomeLoginScreen> {
     });
   }
 
+  // ✅ НОВИЙ МЕТОД: завантаження існуючого користувача
+  Future<void> _loadExistingUser() async {
+    try {
+      final db = AppDatabase.instance;
+      final users = await db.select(db.userProfiles).get();
+
+      if (users.isNotEmpty) {
+        setState(() {
+          _existingUser = users.first;
+          _usernameController.text = users.first.name;
+        });
+        debugPrint('👤 Знайдено користувача: ${users.first.name}');
+      }
+    } catch (e) {
+      debugPrint('❌ Помилка завантаження користувача: $e');
+    }
+  }
+
+  // ✅ НОВИЙ МЕТОД: переключення на нового користувача
+  void _switchToNewUser() {
+    setState(() {
+      _existingUser = null;
+      _usernameController.clear();
+      _passwordController.clear();
+      _errorText = null;
+    });
+  }
+
   Future<void> _ensureUserProfile(User firebaseUser) async {
     final db = AppDatabase.instance;
     final uid = firebaseUser.uid;
-    final username = firebaseUser.displayName ??
-        _usernameController.text.trim();
+
+    // Перевірка
+    final exists = await (db.select(db.userProfiles)
+      ..where((t) => t.userId.equals(uid))
+    ).getSingleOrNull();
+
+    if (exists != null) {
+      debugPrint('✅ Профіль існує');
+      return; // ← ВАЖЛИВО: не оновлювати!
+    }
+
+    // Створити
+    final username = firebaseUser.displayName ?? _usernameController.text.trim();
     final email = firebaseUser.email ??
         '${_usernameController.text.trim().toLowerCase()}@deukarten.de';
 
-    debugPrint('👤 ensureUserProfile: uid=$uid, name=$username');
-
-    await db.into(db.userProfiles).insertOnConflictUpdate(
+    await db.into(db.userProfiles).insert(
       UserProfilesCompanion.insert(
         id: uid,
         userId: uid,
@@ -94,22 +143,7 @@ class _WelcomeLoginScreenState extends ConsumerState<WelcomeLoginScreen> {
       ),
     );
 
-    await db.into(db.userProfiles).insertOnConflictUpdate(
-      UserProfilesCompanion.insert(
-        id: 'local_user',
-        userId: 'local_user',
-        name: username,
-        email: drift.Value(email),
-        joinedDate: DateTime.now(),
-        settings: '{"darkMode":false,"language":"de",'
-            '"soundEffects":true,"hapticFeedback":true,'
-            '"dailyReminder":true,"reminderTime":"09:00"}',
-        learningPrefs: '{"dailyGoal":20,"currentLevel":"A1",'
-            '"nativeLanguage":"uk","autoPlayAudio":true}',
-      ),
-    );
-
-    debugPrint('✅ Профіль збережено: $username (uid=$uid + local_user)');
+    debugPrint('✅ Новий профіль створено');
   }
 
   Future<void> _handleLogin() async {
@@ -139,22 +173,20 @@ class _WelcomeLoginScreenState extends ConsumerState<WelcomeLoginScreen> {
       if (!mounted) return;
 
       if (credential.user != null) {
-        await _ensureUserProfile(credential.user!);
+        await _ensureUserProfile(credential.user!); // ← Тепер НЕ оновлює
       }
 
       if (!mounted) return;
 
-      // ✅ refresh ЗАМІСТЬ invalidate — перечитує одразу
       await ref.read(userProfileProvider.notifier).reload();
 
-      debugPrint('🔄 userProfileProvider refreshed, username=$username');
+      debugPrint('🔄 Login complete: $username');
 
       context.go('/home');
     } on FirebaseAuthException catch (e) {
       setState(() => _errorText = _mapFirebaseError(e.code));
     } catch (e) {
-      setState(
-              () => _errorText = 'Ein unbekannter Fehler ist aufgetreten: $e');
+      setState(() => _errorText = 'Ein unbekannter Fehler ist aufgetreten: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -264,7 +296,8 @@ class _WelcomeLoginScreenState extends ConsumerState<WelcomeLoginScreen> {
       case 'wrong-password':
         return 'Das Passwort ist falsch.';
       case 'invalid-credential':
-        return 'Benutzername oder Passwort ist falsch.';
+        return 'Bitte registrieren Sie sich (über die Schaltfläche unten) '
+            'oder geben Sie einen gültigen Benutzernamen/ein gültiges Passwort ein.';
       case 'email-already-in-use':
         return 'Dieser Benutzername ist bereits vergeben.';
       case 'weak-password':
@@ -307,7 +340,7 @@ class _WelcomeLoginScreenState extends ConsumerState<WelcomeLoginScreen> {
           ),
           const SizedBox(height: 24),
           const Text(
-            'Willkommen bei DeuKarten',
+            'Willkommen im Team für Deutschlernen!',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 28,
@@ -316,8 +349,9 @@ class _WelcomeLoginScreenState extends ConsumerState<WelcomeLoginScreen> {
           ),
           const SizedBox(height: 16),
           const Text(
-            'Lerne Deutsch mit Karten, Übungen und thematischen '
-                'Wortschätzen aus Schritte Neu.',
+            'Lerne Deutsch mit Karteikarten, Tests, Übungen und '
+                'thematischem Vokabular von Schritte Plus Neu '
+                'und deinem persönlichen KI-Tutor!',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 16,
@@ -327,8 +361,8 @@ class _WelcomeLoginScreenState extends ConsumerState<WelcomeLoginScreen> {
           ),
           const SizedBox(height: 12),
           const Text(
-            'Melde dich an, um fertige Decks aus der Cloud zu laden, '
-                'oder starte sofort als Gast.',
+            'Melden Sie sich jetzt für eine Unterrichtsstunde '
+                'mit einem Lehrer oder für das Selbststudium an.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,
@@ -341,7 +375,7 @@ class _WelcomeLoginScreenState extends ConsumerState<WelcomeLoginScreen> {
             width: double.infinity,
             child: ElevatedButton(
               onPressed: _isLoading ? null : _openLoginForm,
-              child: const Text('Anmelden'),
+              child: const Text('Heutigen Lektion'),
             ),
           ),
           const SizedBox(height: 12),
@@ -349,7 +383,7 @@ class _WelcomeLoginScreenState extends ConsumerState<WelcomeLoginScreen> {
             width: double.infinity,
             child: OutlinedButton(
               onPressed: _isLoading ? null : _continueOhneAnmeldung,
-              child: const Text('Ohne Anmeldung fortfahren'),
+              child: const Text('Selbststudium'),
             ),
           ),
           const SizedBox(height: 16),
@@ -396,7 +430,7 @@ class _WelcomeLoginScreenState extends ConsumerState<WelcomeLoginScreen> {
             ),
             const SizedBox(height: 24),
             const Text(
-              'Anmelden oder registrieren',
+              'Willkommen zur heutigen Lektion!',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 24,
@@ -404,32 +438,34 @@ class _WelcomeLoginScreenState extends ConsumerState<WelcomeLoginScreen> {
               ),
             ),
             const SizedBox(height: 24),
+
+            // ✅ ОНОВЛЕНО: readonly якщо є користувач
             TextField(
               controller: _usernameController,
-              enabled: !_isLoading,
+              enabled: !_isLoading && !_hasUser,
+              readOnly: _hasUser,
               textInputAction: TextInputAction.next,
               autocorrect: false,
-              decoration: const InputDecoration(
-                labelText: 'Benutzername',
-                prefixIcon: Icon(Icons.person_outline),
-                border: OutlineInputBorder(),
-                hintText: 'z.B. peter',
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _emailController,
-              enabled: false,
               decoration: InputDecoration(
-                labelText: 'E-Mail',
-                prefixIcon: const Icon(Icons.email_outlined),
+                labelText: 'Benutzername',
+                prefixIcon: const Icon(Icons.person_outline),
                 border: const OutlineInputBorder(),
-                filled: true,
-                fillColor: Colors.grey.shade100,
-                hintText: 'Wird automatisch ausgefüllt',
+                hintText: 'z.B. peter',
+                filled: _hasUser,
+                fillColor: _hasUser ? Colors.grey.shade100 : null,
+                // ✅ Кнопка для зміни користувача
+                suffixIcon: _hasUser
+                    ? IconButton(
+                  icon: const Icon(Icons.edit_outlined),
+                  tooltip: 'Anderer Benutzer',
+                  onPressed: _isLoading ? null : _switchToNewUser,
+                )
+                    : null,
               ),
             ),
+
             const SizedBox(height: 16),
+
             TextField(
               controller: _passwordController,
               obscureText: _obscurePassword,
@@ -452,16 +488,7 @@ class _WelcomeLoginScreenState extends ConsumerState<WelcomeLoginScreen> {
                 ),
               ),
             ),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: _isLoading ? null : _handleResetPassword,
-                child: const Text(
-                  'Passwort vergessen?',
-                  style: TextStyle(fontSize: 13),
-                ),
-              ),
-            ),
+
             if (_errorText != null) ...[
               const SizedBox(height: 4),
               Container(
@@ -489,7 +516,9 @@ class _WelcomeLoginScreenState extends ConsumerState<WelcomeLoginScreen> {
                 ),
               ),
             ],
+
             const SizedBox(height: 24),
+
             ElevatedButton(
               onPressed: _isLoading ? null : _handleLogin,
               child: _isLoading
@@ -498,18 +527,18 @@ class _WelcomeLoginScreenState extends ConsumerState<WelcomeLoginScreen> {
                 width: 22,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
-                  : const Text('Login'),
+                  : const Text('Willkommen in unserem Team!'),
             ),
-            const SizedBox(height: 12),
-            OutlinedButton(
-              onPressed: _isLoading ? null : _handleRegister,
-              child: const Text('Registrieren'),
-            ),
-            const SizedBox(height: 16),
-            TextButton(
-              onPressed: _isLoading ? null : _continueAsGuest,
-              child: const Text('Als Gast fortfahren'),
-            ),
+
+            // ✅ ОНОВЛЕНО: показати тільки якщо немає користувача
+            if (!_hasUser) ...[
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: _isLoading ? null : _handleRegister,
+                child: const Text('Registrieren'),
+              ),
+            ],
+
             const SizedBox(height: 24),
           ],
         ),

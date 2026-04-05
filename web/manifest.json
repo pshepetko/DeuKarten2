@@ -1,11 +1,11 @@
 {
-    "name": "deu_karten",
-    "short_name": "deu_karten",
+    "name": "DeuKarten - Team",
+    "short_name": "dekaTeam",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#FFFFFF",
+    "theme_color": "#1A2B4C",
+    "description": "Lerne Deutsch mit dem Deukarten-Team!",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

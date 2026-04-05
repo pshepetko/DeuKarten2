@@ -14,6 +14,9 @@ import 'widgets/quick_stats_row.dart';
 import 'widgets/recent_decks_section.dart';
 import 'package:deu_karten/core/database/drift_database.dart';
 import 'package:deu_karten/features/profile/providers/providers.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/services.dart';
 
 // ─── Провайдер реальної статистики ──────────────
 final homeStatsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
@@ -24,15 +27,14 @@ final homeStatsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
     final todayStart = DateTime(now.year, now.month, now.day);
     final appDb = AppDatabase.instance;
 
-    int known = 0;        // repetitionCount >= 3
-    int learning = 0;     // repetitionCount 1-2
-    int newCards = 0;      // repetitionCount == 0
-    int readyToLearn = 0; // due + new
-    int learnedToday = 0; // lastReviewed = сьогодні
-    int totalReviewed = 0; // repetitionCount > 0
+    int known = 0;
+    int learning = 0;
+    int newCards = 0;
+    int readyToLearn = 0;
+    int learnedToday = 0;
+    int totalReviewed = 0;
 
     for (final card in allCards) {
-      // Категорії
       if (card.repetitionCount >= 3) {
         known++;
       } else if (card.repetitionCount > 0) {
@@ -41,27 +43,22 @@ final homeStatsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
         newCards++;
       }
 
-      // Чи потрібно повторити
       if (card.repetitionCount == 0 ||
           card.nextReview == null ||
           card.nextReview!.isBefore(now)) {
         readyToLearn++;
       }
 
-      // Вивчено сьогодні
       if (card.lastReviewed != null &&
           card.lastReviewed!.isAfter(todayStart)) {
         learnedToday++;
       }
 
-      // Всього повторених
       if (card.repetitionCount > 0) {
         totalReviewed++;
       }
     }
 
-// Erfolgsquote з реальних сесій
-// Erfolgsquote з реальних сесій
     double successRate = 0.0;
     try {
       final sessionsResult = await appDb.customSelect(
@@ -83,7 +80,7 @@ final homeStatsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
     } catch (e) {
       print('❌ Erfolgsquote error: $e');
     }
-    // ХР
+
     int xpToday = 0;
     try {
       xpToday = await appDb.getTodayXp();
@@ -91,7 +88,7 @@ final homeStatsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
       print('❌ Error in getTodayXp: $e');
       print(st);
     }
-    // Streak
+
     int currentStreak = 0;
     try {
       currentStreak = await appDb.getCurrentStreak();
@@ -99,6 +96,7 @@ final homeStatsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
       print('❌ Error in getCurrentStreak: $e');
       print(st);
     }
+
     return {
       'total': allCards.length,
       'known': known,
@@ -109,7 +107,7 @@ final homeStatsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
       'totalReviewed': totalReviewed,
       'successRate': successRate,
       'xpToday': xpToday,
-      'streak': currentStreak,  // TODO: з StreakData
+      'streak': currentStreak,
     };
   } catch (_) {
     return {
@@ -120,14 +118,16 @@ final homeStatsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   }
 });
 
+// ✅ НОВИЙ PROVIDER - Auth State Stream
+final authStateProvider = StreamProvider<User?>((ref) {
+  return FirebaseAuth.instance.authStateChanges();
+});
+
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // ❌ ПРИБРАНО: ref.invalidate(userProfileProvider);
-    // ❌ ПРИБРАНО: ref.invalidate(homeStatsProvider);
-
     final statsAsync = ref.watch(homeStatsProvider);
     final stats = statsAsync.valueOrNull ?? {};
 
@@ -143,9 +143,8 @@ class HomeScreen extends ConsumerWidget {
     final currentStreak = (stats['streak'] ?? 0) as int;
 
     return Scaffold(
-      appBar: _buildAppBar(context, currentStreak, userName),
+      appBar: _buildAppBar(context, currentStreak, userName, ref),
       body: RefreshIndicator(
-        // ✅ Оновлення по pull-to-refresh замість invalidate в build
         onRefresh: () async {
           ref.invalidate(homeStatsProvider);
           ref.invalidate(userProfileProvider);
@@ -295,7 +294,15 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  AppBar _buildAppBar(BuildContext context, int streak, String userName) {
+  AppBar _buildAppBar(BuildContext context, int streak, String userName, WidgetRef ref) {
+    final authState = ref.watch(authStateProvider);
+
+    final Color statusColor = authState.when(
+      data: (user) => user != null ? Colors.green : Colors.red,
+      loading: () => Colors.orange,
+      error: (_, __) => Colors.red,
+    );
+
     return AppBar(
       backgroundColor: AppColors.background,
       elevation: 0,
@@ -323,9 +330,50 @@ class HomeScreen extends ConsumerWidget {
           icon: const Icon(Icons.notifications_outlined),
           onPressed: () {},
         ),
-        IconButton(
-          icon: const Icon(Icons.person_outline),
-          onPressed: () => context.go('/profil'),
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: GestureDetector(
+            onTap: () async {
+              final shouldLogout = await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Abmelden'),
+                  content: const Text('Möchtest du dich abmelden?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      child: const Text('Nein'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      child: const Text('Ja'),
+                    ),
+                  ],
+                ),
+              );
+
+              if (shouldLogout == true) {
+                await FirebaseAuth.instance.signOut();
+
+                if (context.mounted) {
+                  context.go('/welcome');
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Erfolgreich abgemeldet'),
+                      backgroundColor: Colors.green,
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                }
+              }
+            },
+            child: CircleAvatar(
+              radius: 18,
+              backgroundColor: statusColor,
+              child: const Icon(Icons.person_outline, color: Colors.white),
+            ),
+          ),
         ),
       ],
     );

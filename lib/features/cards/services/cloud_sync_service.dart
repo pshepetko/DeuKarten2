@@ -219,7 +219,7 @@ class CloudSyncService {
 
       await db.into(db.wordCards).insert(
         WordCardsCompanion.insert(
-          id: _uuid.v4(),
+          id: cardsSnapshot.docs[i].id,
           germanWord: germanWord,
           translation: translation,
           article: article,

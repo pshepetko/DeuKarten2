@@ -628,7 +628,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               controller: emailController,
               decoration: const InputDecoration(
                 labelText: 'E-Mail (optional)',
-                hintText: 'deine@email.de',
+                hintText: 'admin@deukarten.de',
               ),
               keyboardType: TextInputType.emailAddress,
             ),

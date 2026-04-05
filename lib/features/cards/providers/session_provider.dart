@@ -78,6 +78,10 @@ class CurrentSession extends _$CurrentSession {
     state.whenData((session) {
       if (session == null) return;
 
+      // Prevent double-counting if the card was already answered
+      final alreadyAnswered = session.cards.any((c) => c.cardId == cardId && c.wasCorrect != null);
+      if (alreadyAnswered) return;
+
       final updatedCards = session.cards.map((card) {
         if (card.cardId == cardId) {
           return card.copyWith(
@@ -90,7 +94,7 @@ class CurrentSession extends _$CurrentSession {
 
       final cardsStudied = (session.cardsStudied ?? 0) + 1;
       final correctAnswers =
-      knewIt ? (session.correctAnswers ?? 0) + 1 : (session.correctAnswers ?? 0);
+        knewIt ? (session.correctAnswers ?? 0) + 1 : (session.correctAnswers ?? 0);
       final xpEarned = correctAnswers * 10;
 
       final updatedSession = session.copyWith(
